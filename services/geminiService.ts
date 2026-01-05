@@ -76,8 +76,14 @@ export class GeminiService {
         uri: chunk.web.uri
       }));
 
+    const responseText = response.text;
+    if (!responseText) {
+      console.error("No text response from Gemini");
+      return null;
+    }
+
     try {
-      const data = JSON.parse(response.text);
+      const data = JSON.parse(responseText);
       return {
         ...data,
         groundingSources
