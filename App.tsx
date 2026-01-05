@@ -1,5 +1,5 @@
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { AppState, LicenseTrend, ActionType, ImpactLevel } from './types';
 import { MOCK_LICENSES } from './constants';
 import { LicenseCard } from './components/LicenseCard';
@@ -18,12 +18,14 @@ import {
   AlertCircle,
   Globe,
   Menu,
-  Plus
+  Plus,
+  Key
 } from 'lucide-react';
 
 const App: React.FC = () => {
   const [view, setView] = useState<'landing' | 'dashboard'>('landing');
   const [isSidebarHovered, setIsSidebarHovered] = useState(false);
+  const [hasKey, setHasKey] = useState(true);
   
   const [state, setState] = useState<AppState>({
     licenses: MOCK_LICENSES,
@@ -35,7 +37,28 @@ const App: React.FC = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [sensingError, setSensingError] = useState<string | null>(null);
 
-  // Expanded ONLY on hover. Collapsed by default (no toggle).
+  useEffect(() => {
+    // Check if an API key is available via environment or selection
+    const checkKey = async () => {
+      const isEnvSet = !!process.env.API_KEY && process.env.API_KEY !== 'undefined';
+      if (!isEnvSet && window.aistudio) {
+        const selected = await window.aistudio.hasSelectedApiKey();
+        setHasKey(selected);
+      } else {
+        setHasKey(isEnvSet);
+      }
+    };
+    checkKey();
+  }, []);
+
+  const handleOpenKeyDialog = async () => {
+    if (window.aistudio) {
+      await window.aistudio.openSelectKey();
+      setHasKey(true);
+      setSensingError(null);
+    }
+  };
+
   const isExpanded = isSidebarHovered;
 
   const handleSensing = async (licenseId?: string) => {
@@ -46,47 +69,42 @@ const App: React.FC = () => {
     setState(prev => ({ ...prev, isSensing: true }));
     setSensingError(null);
     
-    try {
-      const result = await geminiService.analyzeTrends(selected.name, selected.category);
-      
-      if (result) {
-        const dates = ['-21d', '-14d', '-7d', 'Today'];
-        const chartData = (result.points || [10, 20, 30, 40]).map((val: number, i: number) => ({
-          date: dates[i],
-          value: val
-        }));
+    const { data, error } = await geminiService.analyzeTrends(selected.name, selected.category);
+    
+    if (data) {
+      const dates = ['-21d', '-14d', '-7d', 'Today'];
+      const chartData = (data.points || [10, 20, 30, 40]).map((val: number, i: number) => ({
+        date: dates[i],
+        value: val
+      }));
 
-        setState(prev => ({
-          ...prev,
-          isSensing: false,
-          lastUpdated: new Date().toLocaleTimeString(),
-          licenses: prev.licenses.map(l => {
-            if (l.id === targetId) {
-              return {
-                ...l,
-                name: result.name || l.name,
-                category: result.category || l.category,
-                recommendedAction: (result.action as ActionType) || l.recommendedAction,
-                impactScore: (result.impact as ImpactLevel) || l.impactScore,
-                reasoning: result.reasoning || l.reasoning,
-                confidence: result.confidence || 0,
-                trendScore: result.trendScore || 0,
-                timeSensitivity: result.sensitivity || 0,
-                historicalAnalog: result.analog || l.historicalAnalog,
-                groundingSources: result.groundingSources,
-                signals: result.awarenessSignals || l.signals,
-                chartData: chartData
-              };
-            }
-            return l;
-          })
-        }));
-      } else {
-        throw new Error("Empty result");
-      }
-    } catch (err) {
-      console.error("Demand sensing failed", err);
-      setSensingError("G-Sensing failed. Ensure API_KEY is set in Vercel.");
+      setState(prev => ({
+        ...prev,
+        isSensing: false,
+        lastUpdated: new Date().toLocaleTimeString(),
+        licenses: prev.licenses.map(l => {
+          if (l.id === targetId) {
+            return {
+              ...l,
+              name: data.name || l.name,
+              category: data.category || l.category,
+              recommendedAction: (data.action as ActionType) || l.recommendedAction,
+              impactScore: (data.impact as ImpactLevel) || l.impactScore,
+              reasoning: data.reasoning || l.reasoning,
+              confidence: data.confidence || 0,
+              trendScore: data.trendScore || 0,
+              timeSensitivity: data.sensitivity || 0,
+              historicalAnalog: data.analog || l.historicalAnalog,
+              groundingSources: data.groundingSources,
+              signals: data.awarenessSignals || l.signals,
+              chartData: chartData
+            };
+          }
+          return l;
+        })
+      }));
+    } else {
+      setSensingError(error || "G-Sensing failed.");
       setState(prev => ({ ...prev, isSensing: false }));
     }
   };
@@ -98,46 +116,41 @@ const App: React.FC = () => {
     setState(prev => ({ ...prev, isSensing: true }));
     setSensingError(null);
 
-    try {
-      const result = await geminiService.analyzeTrends(query, "Discovery");
-      if (result) {
-        const newId = `new-${Date.now()}`;
-        const dates = ['-21d', '-14d', '-7d', 'Today'];
-        const chartData = (result.points || [10, 20, 30, 40]).map((val: number, i: number) => ({
-          date: dates[i],
-          value: val
-        }));
+    const { data, error } = await geminiService.analyzeTrends(query, "Discovery");
+    if (data) {
+      const newId = `new-${Date.now()}`;
+      const dates = ['-21d', '-14d', '-7d', 'Today'];
+      const chartData = (data.points || [10, 20, 30, 40]).map((val: number, i: number) => ({
+        date: dates[i],
+        value: val
+      }));
 
-        const newLicense: LicenseTrend = {
-          id: newId,
-          name: result.name || query,
-          category: result.category || "Discovery",
-          recommendedAction: (result.action as ActionType) || ActionType.TEST,
-          impactScore: (result.impact as ImpactLevel) || ImpactLevel.LOW,
-          reasoning: result.reasoning || "Real-time discovery triggered via sensing engine.",
-          confidence: result.confidence || 50,
-          trendScore: result.trendScore || 50,
-          timeSensitivity: result.sensitivity || 4,
-          signals: result.awarenessSignals || [],
-          chartData: chartData,
-          historicalAnalog: result.analog,
-          groundingSources: result.groundingSources
-        };
+      const newLicense: LicenseTrend = {
+        id: newId,
+        name: data.name || query,
+        category: data.category || "Discovery",
+        recommendedAction: (data.action as ActionType) || ActionType.TEST,
+        impactScore: (data.impact as ImpactLevel) || ImpactLevel.LOW,
+        reasoning: data.reasoning || "Real-time discovery triggered via sensing engine.",
+        confidence: data.confidence || 50,
+        trendScore: data.trendScore || 50,
+        timeSensitivity: data.sensitivity || 4,
+        signals: data.awarenessSignals || [],
+        chartData: chartData,
+        historicalAnalog: data.analog,
+        groundingSources: data.groundingSources
+      };
 
-        setState(prev => ({
-          ...prev,
-          isSensing: false,
-          lastUpdated: new Date().toLocaleTimeString(),
-          licenses: [newLicense, ...prev.licenses],
-          selectedLicenseId: newId
-        }));
-        setSearchQuery(''); 
-      } else {
-        throw new Error("Discovery failed");
-      }
-    } catch (err) {
-      console.error("Discovery failed:", err);
-      setSensingError("Discovery Engine failed. Check Vercel API Key.");
+      setState(prev => ({
+        ...prev,
+        isSensing: false,
+        lastUpdated: new Date().toLocaleTimeString(),
+        licenses: [newLicense, ...prev.licenses],
+        selectedLicenseId: newId
+      }));
+      setSearchQuery(''); 
+    } else {
+      setSensingError(error || "Discovery Engine failed.");
       setState(prev => ({ ...prev, isSensing: false }));
     }
   };
@@ -155,7 +168,6 @@ const App: React.FC = () => {
   };
 
   const selectedLicense = state.licenses.find(l => l.id === state.selectedLicenseId);
-
   const filteredLicenses = state.licenses.filter(l => 
     l.name.toLowerCase().includes(searchQuery.toLowerCase()) || 
     l.category.toLowerCase().includes(searchQuery.toLowerCase())
@@ -167,11 +179,8 @@ const App: React.FC = () => {
 
   return (
     <div className="flex h-screen bg-gray-50 text-gray-900 overflow-hidden">
-      {/* Sidebar with Hover Expansion Only */}
       <aside 
-        className={`${
-          isExpanded ? 'w-64' : 'w-20'
-        } bg-gray-900 text-white flex flex-col transition-all duration-300 ease-in-out hidden md:flex relative z-20 shadow-2xl`}
+        className={`${isExpanded ? 'w-64' : 'w-20'} bg-gray-900 text-white flex flex-col transition-all duration-300 ease-in-out hidden md:flex relative z-20 shadow-2xl`}
         onMouseEnter={() => setIsSidebarHovered(true)}
         onMouseLeave={() => setIsSidebarHovered(false)}
       >
@@ -187,7 +196,6 @@ const App: React.FC = () => {
               )}
             </div>
           </div>
-
           <nav className="space-y-1">
             <NavItem icon={<LayoutDashboard className="w-5 h-5" />} label="Action Center" active collapsed={!isExpanded} />
             <NavItem icon={<Compass className="w-5 h-5" />} label="Sense Engine" collapsed={!isExpanded} />
@@ -197,7 +205,6 @@ const App: React.FC = () => {
             <NavItem icon={<Settings className="w-5 h-5" />} label="Settings" collapsed={!isExpanded} />
           </nav>
         </div>
-        
         <div className="mt-auto p-5 border-t border-gray-800 bg-gray-900/50">
           <div className="flex items-center gap-3 min-w-max">
             <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-blue-500 to-indigo-600 flex-shrink-0 border-2 border-white/10" />
@@ -211,7 +218,6 @@ const App: React.FC = () => {
         </div>
       </aside>
 
-      {/* Main Content */}
       <main className="flex-1 flex flex-col overflow-hidden relative">
         <header className="h-16 bg-white border-b border-gray-200 flex items-center justify-between px-8 z-10 shrink-0">
           <div className="flex items-center gap-4 flex-1 max-w-xl">
@@ -219,7 +225,7 @@ const App: React.FC = () => {
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
               <input 
                 type="text" 
-                placeholder="Search local or type a NEW trend + ENTER to sense..." 
+                placeholder="Search locally or type trend + ENTER to sense globally..." 
                 className="w-full pl-10 pr-4 py-2 bg-gray-100 border-none rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:bg-white transition-all outline-none"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
@@ -229,9 +235,18 @@ const App: React.FC = () => {
           </div>
 
           <div className="flex items-center gap-4">
+            {!hasKey && (
+              <button 
+                onClick={handleOpenKeyDialog}
+                className="flex items-center gap-2 text-xs font-bold text-amber-700 bg-amber-50 px-3 py-1.5 rounded-lg border border-amber-200 hover:bg-amber-100 transition-colors"
+              >
+                <Key className="w-3 h-3" />
+                Connect API Key
+              </button>
+            )}
             {sensingError ? (
-              <div className="flex items-center gap-2 text-xs font-bold text-red-600 bg-red-50 px-3 py-1.5 rounded-lg border border-red-100 animate-pulse">
-                <AlertCircle className="w-3 h-3" />
+              <div className="flex items-center gap-2 text-xs font-bold text-red-600 bg-red-50 px-3 py-1.5 rounded-lg border border-red-100 max-w-[200px] truncate">
+                <AlertCircle className="w-3 h-3 flex-shrink-0" />
                 {sensingError}
               </div>
             ) : (
@@ -255,7 +270,6 @@ const App: React.FC = () => {
         </header>
 
         <div className="flex-1 flex overflow-hidden p-6 gap-6 flex-col lg:flex-row">
-          {/* List Section */}
           <section className="w-full lg:w-1/3 flex flex-col gap-6 overflow-y-auto custom-scrollbar pr-2 min-h-0">
             <div className="flex items-center justify-between sticky top-0 bg-gray-50 z-10 pb-2">
               <h2 className="text-xl font-black tracking-tight flex items-center gap-2">
@@ -292,7 +306,6 @@ const App: React.FC = () => {
             </div>
           </section>
 
-          {/* Details Section */}
           <section className="flex-1 overflow-hidden min-h-0">
             {selectedLicense ? (
               <TrendDetails key={selectedLicense.id} license={selectedLicense} />

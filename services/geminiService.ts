@@ -5,45 +5,39 @@ import { GroundingSource, TrendAnalysisResponse } from "../types";
 export class GeminiService {
   /**
    * Analyzes market trends using Gemini 3 Flash with Google Search grounding.
-   * We avoid strict JSON mode here because Search Grounding often appends citations 
-   * to the text output, which can break the JSON parser if strict mode is used.
    */
-  async analyzeTrends(licenseName: string, category: string): Promise<TrendAnalysisResponse | null> {
+  async analyzeTrends(licenseName: string, category: string): Promise<{ data: TrendAnalysisResponse | null, error?: string }> {
+    // Priority 1: Check environment variable injected via Vite/Vercel
+    // Priority 2: The SDK will automatically check for keys selected via window.aistudio.openSelectKey()
     const apiKey = process.env.API_KEY;
-    if (!apiKey || apiKey === 'undefined') {
-      console.error("Gemini API Key is missing. Ensure it is set in Vercel Environment Variables.");
-      return null;
-    }
-
-    // Initialize per-request to ensure the latest API key is used
-    const ai = new GoogleGenAI({ apiKey });
+    
+    // Initialize per-request to ensure the latest API key (from env or dialog) is used
+    const ai = new GoogleGenAI({ apiKey: apiKey || "" });
     
     const prompt = `Perform real-time demand sensing for the license: "${licenseName}" (Category: ${category || 'General'}). 
       Current Date: January 2025.
       
       Task:
-      1. Use Google Search to find specific news from the last 14 days (trailers, release dates, leaks, social spikes).
+      1. Use Google Search to find specific news from the last 14 days.
       2. Provide a detailed demand analysis.
       3. Output your findings STRICTLY as a JSON block.
       
-      The JSON block must have this exact structure:
+      Structure:
       {
-        "name": "Confirmed official name",
-        "category": "Anime/Gaming/Entertainment/etc",
-        "action": "TEST, SCALE, HOLD, or KILL",
-        "impact": "LOW, MEDIUM, or HIGH",
-        "reasoning": "Merchandising logic based on search signals",
-        "confidence": number (0-100),
-        "trendScore": number (0-100),
-        "sensitivity": number (estimated weeks of peak demand remaining),
-        "analog": "Similar past property name",
-        "points": [number, number, number, number], (4 numbers representing demand over last 30 days)
+        "name": "string",
+        "category": "string",
+        "action": "TEST|SCALE|HOLD|AVOID|KILL",
+        "impact": "LOW|MEDIUM|HIGH",
+        "reasoning": "string",
+        "confidence": number,
+        "trendScore": number,
+        "sensitivity": number,
+        "analog": "string",
+        "points": [number, number, number, number],
         "awarenessSignals": [
-          { "type": "search"|"news"|"social", "source": "e.g. Google Trends", "description": "brief description", "intensity": 0-100, "timestamp": "YYYY-MM-DD" }
+          { "type": "search"|"news"|"social", "source": "string", "description": "string", "intensity": number, "timestamp": "YYYY-MM-DD" }
         ]
-      }
-      
-      Ensure accuracy for late 2024 and 2025 events.`;
+      }`;
 
     try {
       const response = await ai.models.generateContent({
@@ -51,25 +45,17 @@ export class GeminiService {
         contents: prompt,
         config: {
           tools: [{ googleSearch: {} }],
-          // We do NOT use responseMimeType: "application/json" here because 
-          // search grounding often appends text that breaks strict JSON output.
         }
       });
 
       const responseText = response.text;
       if (!responseText) {
-        console.error("Empty response from Sensing Engine");
-        return null;
+        return { data: null, error: "Model returned an empty response." };
       }
 
-      // Extract JSON from potential markdown wrappers or surrounding text
-      let jsonStr = responseText;
       const jsonMatch = responseText.match(/\{[\s\S]*\}/);
-      if (jsonMatch) {
-        jsonStr = jsonMatch[0];
-      }
+      const jsonStr = jsonMatch ? jsonMatch[0] : responseText;
 
-      // Extract grounding sources from metadata
       const groundingChunks = response.candidates?.[0]?.groundingMetadata?.groundingChunks || [];
       const groundingSources: GroundingSource[] = groundingChunks
         .filter((chunk: any) => chunk.web)
@@ -81,16 +67,28 @@ export class GeminiService {
       try {
         const data = JSON.parse(jsonStr);
         return {
-          ...data,
-          groundingSources: groundingSources.length > 0 ? groundingSources : undefined
-        } as TrendAnalysisResponse;
+          data: {
+            ...data,
+            groundingSources: groundingSources.length > 0 ? groundingSources : undefined
+          } as TrendAnalysisResponse
+        };
       } catch (parseError) {
-        console.error("JSON Parse Error. Raw text from model:", responseText);
-        return null;
+        console.error("JSON Parse Error:", responseText);
+        return { data: null, error: "Failed to parse trend data. The model response was malformed." };
       }
-    } catch (apiError) {
-      console.error("Gemini API Error:", apiError);
-      return null;
+    } catch (apiError: any) {
+      console.error("Gemini API Error Detail:", apiError);
+      let errorMessage = apiError.message || "Unknown API error";
+      
+      if (errorMessage.includes("API_KEY_INVALID") || errorMessage.includes("API key not found")) {
+        errorMessage = "Invalid API Key. Please check your Vercel Environment Variables.";
+      } else if (errorMessage.includes("User location is not supported")) {
+        errorMessage = "Gemini Search is not available in your region.";
+      } else if (errorMessage.includes("Requested entity was not found")) {
+        errorMessage = "Model or Search tool not found. Check project settings.";
+      }
+      
+      return { data: null, error: errorMessage };
     }
   }
 }
