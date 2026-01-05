@@ -17,8 +17,6 @@ import {
   FileText,
   AlertCircle,
   Globe,
-  ChevronLeft,
-  ChevronRight,
   Menu,
   Plus
 } from 'lucide-react';
@@ -26,7 +24,8 @@ import {
 const App: React.FC = () => {
   const [view, setView] = useState<'landing' | 'dashboard'>('landing');
   const [isSidebarHovered, setIsSidebarHovered] = useState(false);
-  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(true);
+  // isSidebarCollapsed is true by default, making it collapsed unless hovered
+  const [isSidebarCollapsed] = useState(true);
   
   const [state, setState] = useState<AppState>({
     licenses: MOCK_LICENSES,
@@ -38,7 +37,7 @@ const App: React.FC = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [sensingError, setSensingError] = useState<string | null>(null);
 
-  // Effective state for visual expansion
+  // Expanded strictly on hover when collapsed by default
   const isExpanded = isSidebarHovered || !isSidebarCollapsed;
 
   const handleSensing = async (licenseId?: string) => {
@@ -85,18 +84,18 @@ const App: React.FC = () => {
           })
         }));
       } else {
-        throw new Error("Empty response from Sensing Engine");
+        throw new Error("Sensing Engine returned no valid data.");
       }
     } catch (err) {
       console.error("Demand sensing failed", err);
-      setSensingError("G-Search failed. Check API_KEY.");
+      setSensingError("Search failed. Verify API Key and connection.");
       setState(prev => ({ ...prev, isSensing: false }));
     }
   };
 
   const discoverNewTrend = async () => {
     const query = searchQuery.trim();
-    if (!query) return;
+    if (!query || query.length < 2) return;
     
     setState(prev => ({ ...prev, isSensing: true }));
     setSensingError(null);
@@ -134,13 +133,13 @@ const App: React.FC = () => {
           licenses: [newLicense, ...prev.licenses],
           selectedLicenseId: newId
         }));
-        setSearchQuery(''); // Reset search after discovery
+        setSearchQuery(''); 
       } else {
-        throw new Error("Sensing Engine returned no data");
+        throw new Error("Engine returned no discovery results.");
       }
     } catch (err) {
       console.error("Discovery failed:", err);
-      setSensingError("Real-time sensing failed for this term.");
+      setSensingError("Global sensing failed. Check logs or query term.");
       setState(prev => ({ ...prev, isSensing: false }));
     }
   };
@@ -151,7 +150,7 @@ const App: React.FC = () => {
         l.name.toLowerCase().includes(searchQuery.toLowerCase()) || 
         l.category.toLowerCase().includes(searchQuery.toLowerCase())
       );
-      if (!existsLocally && searchQuery.trim().length > 2) {
+      if (!existsLocally && searchQuery.trim().length >= 2) {
         discoverNewTrend();
       }
     }
@@ -170,7 +169,7 @@ const App: React.FC = () => {
 
   return (
     <div className="flex h-screen bg-gray-50 text-gray-900 overflow-hidden">
-      {/* Sidebar with Hover Expansion */}
+      {/* Sidebar with Hover Expansion Only */}
       <aside 
         className={`${
           isExpanded ? 'w-64' : 'w-20'
@@ -237,7 +236,6 @@ const App: React.FC = () => {
 
       {/* Main Content */}
       <main className="flex-1 flex flex-col overflow-hidden relative">
-        {/* Header */}
         <header className="h-16 bg-white border-b border-gray-200 flex items-center justify-between px-8 z-10 shrink-0">
           <div className="flex items-center gap-4 flex-1 max-w-xl">
             <div className="relative w-full">
@@ -283,9 +281,7 @@ const App: React.FC = () => {
           </div>
         </header>
 
-        {/* Dashboard Content */}
         <div className="flex-1 flex overflow-hidden p-6 gap-6 flex-col lg:flex-row">
-          {/* Dashboard Left: List */}
           <section className="w-full lg:w-1/3 flex flex-col gap-6 overflow-y-auto custom-scrollbar pr-2 min-h-0">
             <div className="flex items-center justify-between sticky top-0 bg-gray-50 z-10 pb-2">
               <h2 className="text-xl font-black tracking-tight flex items-center gap-2">
@@ -312,7 +308,6 @@ const App: React.FC = () => {
                 />
               ))}
               
-              {/* Discovery Option if no results */}
               {searchQuery && filteredLicenses.length === 0 && (
                 <button 
                   onClick={discoverNewTrend}
@@ -331,7 +326,6 @@ const App: React.FC = () => {
             </div>
           </section>
 
-          {/* Dashboard Right: Detail */}
           <section className="flex-1 overflow-hidden min-h-0">
             {selectedLicense ? (
               <TrendDetails key={selectedLicense.id} license={selectedLicense} />
