@@ -1,33 +1,34 @@
 
 import { GoogleGenAI, Type } from "@google/genai";
-import { ActionType, ImpactLevel, GroundingSource } from "../types";
+import { GroundingSource, TrendAnalysisResponse } from "../types";
 
 export class GeminiService {
-  private ai: GoogleGenAI;
-
-  constructor() {
-    this.ai = new GoogleGenAI({ apiKey: process.env.API_KEY || '' });
-  }
-
-  async analyzeTrends(licenseName: string, category: string) {
-    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY || '' });
+  /**
+   * Analyzes market trends using Gemini 3 Flash with Google Search grounding.
+   * Initializes a new SDK instance per call to ensure compliance with API key selection best practices.
+   */
+  async analyzeTrends(licenseName: string, category: string): Promise<TrendAnalysisResponse | null> {
+    // CRITICAL: Always use named parameters for initialization.
+    // Use process.env.API_KEY directly.
+    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
     
-    // Explicit instruction to provide real-time signals with current dates
-    const prompt = `Perform real-time demand sensing for: "${licenseName}" (${category}). 
+    const prompt = `Perform real-time demand sensing for: "${licenseName}" (${category || 'General Merchandise'}). 
       Current Date: January 2025.
       
       Use Google Search to find specific news from the last 14 days (trailers, release dates, events).
       
       Return a JSON object with:
-      1. action: (TEST, SCALE, HOLD, AVOID, KILL)
-      2. impact: (LOW, MEDIUM, HIGH)
-      3. reasoning: Professional AP/Merchandising explanation.
-      4. confidence: 0-100 percentage.
-      5. trendScore: 0-100 current momentum.
-      6. sensitivity: Weeks remaining in cycle.
-      7. analog: A similar past license performance.
-      8. awarenessSignals: Array of { type: 'search'|'news'|'social', source: string, description: string, intensity: number, timestamp: string (YYYY-MM-DD) }
-      9. points: Array of 4 numbers for a recent trend chart (0-100).
+      1. name: Confirmed official name.
+      2. category: (Anime, Gaming, Entertainment, Music, etc.)
+      3. action: (TEST, SCALE, HOLD, AVOID, KILL)
+      4. impact: (LOW, MEDIUM, HIGH)
+      5. reasoning: Professional AP/Merchandising explanation.
+      6. confidence: 0-100 percentage.
+      7. trendScore: 0-100 current momentum.
+      8. sensitivity: Weeks remaining in cycle.
+      9. analog: A similar past license performance.
+      10. awarenessSignals: Array of { type: 'search'|'news'|'social', source: string, description: string, intensity: number, timestamp: string (YYYY-MM-DD) }
+      11. points: Array of 4 numbers for a recent trend chart (0-100).
       
       Ensure all dates and events are accurate for late 2024 or 2025.`;
 
@@ -40,6 +41,8 @@ export class GeminiService {
         responseSchema: {
           type: Type.OBJECT,
           properties: {
+            name: { type: Type.STRING },
+            category: { type: Type.STRING },
             action: { type: Type.STRING },
             impact: { type: Type.STRING },
             reasoning: { type: Type.STRING },
@@ -63,7 +66,7 @@ export class GeminiService {
               }
             }
           },
-          required: ["action", "impact", "reasoning", "confidence", "trendScore", "sensitivity", "awarenessSignals", "points"]
+          required: ["name", "category", "action", "impact", "reasoning", "confidence", "trendScore", "sensitivity", "awarenessSignals", "points"]
         }
       }
     });
@@ -76,6 +79,7 @@ export class GeminiService {
         uri: chunk.web.uri
       }));
 
+    // Extract text output directly from the .text property (not a method).
     const responseText = response.text;
     if (!responseText) {
       console.error("No text response from Gemini");
@@ -87,7 +91,7 @@ export class GeminiService {
       return {
         ...data,
         groundingSources
-      };
+      } as TrendAnalysisResponse;
     } catch (e) {
       console.error("Failed to parse Gemini response as JSON", e);
       return null;

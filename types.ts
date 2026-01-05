@@ -42,6 +42,24 @@ export interface LicenseTrend {
   groundingSources?: GroundingSource[];
 }
 
+/**
+ * Interface representing the structured response from the Gemini Demand Sensing model.
+ */
+export interface TrendAnalysisResponse {
+  name: string;
+  category: string;
+  action: string;
+  impact: string;
+  reasoning: string;
+  confidence: number;
+  trendScore: number;
+  sensitivity: number;
+  analog?: string;
+  points: number[];
+  awarenessSignals: TrendSignal[];
+  groundingSources?: GroundingSource[];
+}
+
 export interface AppState {
   licenses: LicenseTrend[];
   isSensing: boolean;
