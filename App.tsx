@@ -25,7 +25,8 @@ import {
 
 const App: React.FC = () => {
   const [view, setView] = useState<'landing' | 'dashboard'>('landing');
-  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
+  const [isSidebarHovered, setIsSidebarHovered] = useState(false);
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(true);
   
   const [state, setState] = useState<AppState>({
     licenses: MOCK_LICENSES,
@@ -36,6 +37,9 @@ const App: React.FC = () => {
 
   const [searchQuery, setSearchQuery] = useState('');
   const [sensingError, setSensingError] = useState<string | null>(null);
+
+  // Effective state for visual expansion
+  const isExpanded = isSidebarHovered || !isSidebarCollapsed;
 
   const handleSensing = async (licenseId?: string) => {
     const targetId = licenseId || state.selectedLicenseId;
@@ -65,8 +69,8 @@ const App: React.FC = () => {
                 ...l,
                 name: result.name || l.name,
                 category: result.category || l.category,
-                recommendedAction: result.action as ActionType,
-                impactScore: result.impact as ImpactLevel,
+                recommendedAction: (result.action as ActionType) || l.recommendedAction,
+                impactScore: (result.impact as ImpactLevel) || l.impactScore,
                 reasoning: result.reasoning || l.reasoning,
                 confidence: result.confidence || 0,
                 trendScore: result.trendScore || 0,
@@ -91,13 +95,14 @@ const App: React.FC = () => {
   };
 
   const discoverNewTrend = async () => {
-    if (!searchQuery.trim()) return;
+    const query = searchQuery.trim();
+    if (!query) return;
     
     setState(prev => ({ ...prev, isSensing: true }));
     setSensingError(null);
 
     try {
-      const result = await geminiService.analyzeTrends(searchQuery, "Auto-Discovery");
+      const result = await geminiService.analyzeTrends(query, "Discovery");
       if (result) {
         const newId = `new-${Date.now()}`;
         const dates = ['-21d', '-14d', '-7d', 'Today'];
@@ -108,7 +113,7 @@ const App: React.FC = () => {
 
         const newLicense: LicenseTrend = {
           id: newId,
-          name: result.name || searchQuery,
+          name: result.name || query,
           category: result.category || "Uncategorized",
           recommendedAction: (result.action as ActionType) || ActionType.TEST,
           impactScore: (result.impact as ImpactLevel) || ImpactLevel.LOW,
@@ -130,10 +135,25 @@ const App: React.FC = () => {
           selectedLicenseId: newId
         }));
         setSearchQuery(''); // Reset search after discovery
+      } else {
+        throw new Error("Sensing Engine returned no data");
       }
     } catch (err) {
-      setSensingError("Discovery failed. Check search term.");
+      console.error("Discovery failed:", err);
+      setSensingError("Real-time sensing failed for this term.");
       setState(prev => ({ ...prev, isSensing: false }));
+    }
+  };
+
+  const handleSearchKeyPress = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter') {
+      const existsLocally = state.licenses.some(l => 
+        l.name.toLowerCase().includes(searchQuery.toLowerCase()) || 
+        l.category.toLowerCase().includes(searchQuery.toLowerCase())
+      );
+      if (!existsLocally && searchQuery.trim().length > 2) {
+        discoverNewTrend();
+      }
     }
   };
 
@@ -150,29 +170,25 @@ const App: React.FC = () => {
 
   return (
     <div className="flex h-screen bg-gray-50 text-gray-900 overflow-hidden">
-      {/* Sidebar */}
+      {/* Sidebar with Hover Expansion */}
       <aside 
         className={`${
-          isSidebarCollapsed ? 'w-20' : 'w-64'
+          isExpanded ? 'w-64' : 'w-20'
         } bg-gray-900 text-white flex flex-col transition-all duration-300 ease-in-out hidden md:flex relative z-20`}
+        onMouseEnter={() => setIsSidebarHovered(true)}
+        onMouseLeave={() => setIsSidebarHovered(false)}
       >
         <div className="p-5">
           <div className="flex items-center justify-between mb-8 overflow-hidden">
             <div className="flex items-center gap-3 min-w-max">
               <div className="w-10 h-10 bg-blue-600 rounded-xl flex items-center justify-center font-black text-xl italic flex-shrink-0 shadow-lg shadow-blue-500/20">P</div>
-              {!isSidebarCollapsed && (
+              {isExpanded && (
                 <div className="animate-in fade-in slide-in-from-left-2 duration-300">
                   <h1 className="text-lg font-black tracking-tighter leading-none">BIOWORLD</h1>
                   <span className="text-[10px] font-bold text-blue-400 tracking-widest uppercase opacity-80">Pulse Platform</span>
                 </div>
               )}
             </div>
-            <button 
-              onClick={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
-              className="p-1.5 hover:bg-gray-800 rounded-lg text-gray-500 transition-colors"
-            >
-              {isSidebarCollapsed ? <ChevronRight className="w-5 h-5" /> : <ChevronLeft className="w-5 h-5" />}
-            </button>
           </div>
 
           <nav className="space-y-1">
@@ -180,28 +196,28 @@ const App: React.FC = () => {
               icon={<LayoutDashboard className="w-5 h-5" />} 
               label="Action Center" 
               active 
-              collapsed={isSidebarCollapsed} 
+              collapsed={!isExpanded} 
             />
             <NavItem 
               icon={<Compass className="w-5 h-5" />} 
               label="Sense Engine" 
-              collapsed={isSidebarCollapsed} 
+              collapsed={!isExpanded} 
             />
             <NavItem 
               icon={<Boxes className="w-5 h-5" />} 
               label="License Portfolio" 
-              collapsed={isSidebarCollapsed} 
+              collapsed={!isExpanded} 
             />
             <NavItem 
               icon={<FileText className="w-5 h-5" />} 
               label="Reports" 
-              collapsed={isSidebarCollapsed} 
+              collapsed={!isExpanded} 
             />
             <div className="py-4 border-t border-gray-800 mt-4" />
             <NavItem 
               icon={<Settings className="w-5 h-5" />} 
               label="Configuration" 
-              collapsed={isSidebarCollapsed} 
+              collapsed={!isExpanded} 
             />
           </nav>
         </div>
@@ -209,7 +225,7 @@ const App: React.FC = () => {
         <div className="mt-auto p-5 border-t border-gray-800 bg-gray-900/50">
           <div className="flex items-center gap-3 min-w-max">
             <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-blue-500 to-indigo-600 flex-shrink-0 border-2 border-white/10" />
-            {!isSidebarCollapsed && (
+            {isExpanded && (
               <div className="animate-in fade-in slide-in-from-left-2 duration-300">
                 <p className="text-xs font-bold truncate w-32">Sakshi Sonawane</p>
                 <p className="text-[10px] text-gray-400 uppercase font-bold tracking-tight">Merchandising Lead</p>
@@ -228,10 +244,11 @@ const App: React.FC = () => {
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
               <input 
                 type="text" 
-                placeholder="Search or discover new trends (e.g. 'Dragon Ball DAIMA')..." 
+                placeholder="Search local or sense new trends (Press Enter)..." 
                 className="w-full pl-10 pr-4 py-2 bg-gray-100 border-none rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:bg-white transition-all outline-none"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
+                onKeyDown={handleSearchKeyPress}
               />
             </div>
           </div>
@@ -281,7 +298,7 @@ const App: React.FC = () => {
                 className="px-3 py-1.5 bg-blue-600 text-white rounded-lg text-xs font-bold hover:bg-blue-700 flex items-center gap-1.5 disabled:opacity-50 transition-all shadow-sm"
               >
                 <RefreshCw className={`w-3 h-3 ${state.isSensing ? 'animate-spin' : ''}`} />
-                {state.isSensing ? 'Syncing...' : 'Sync Search'}
+                {state.isSensing ? 'Syncing...' : 'Force Sync'}
               </button>
             </div>
 
@@ -296,7 +313,7 @@ const App: React.FC = () => {
               ))}
               
               {/* Discovery Option if no results */}
-              {searchQuery && (
+              {searchQuery && filteredLicenses.length === 0 && (
                 <button 
                   onClick={discoverNewTrend}
                   disabled={state.isSensing}
@@ -306,8 +323,8 @@ const App: React.FC = () => {
                     {state.isSensing ? <RefreshCw className="w-6 h-6 animate-spin" /> : <Plus className="w-6 h-6" />}
                   </div>
                   <div>
-                    <h4 className="font-bold text-blue-900">Discover "{searchQuery}"</h4>
-                    <p className="text-xs text-blue-600/70 font-medium">Trigger real-time Demand Sensing for this term</p>
+                    <h4 className="font-bold text-blue-900">Sense Global: "{searchQuery}"</h4>
+                    <p className="text-xs text-blue-600/70 font-medium">No local matches. Trigger AI discovery engine.</p>
                   </div>
                 </button>
               )}
