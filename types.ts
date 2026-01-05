@@ -66,3 +66,16 @@ export interface AppState {
   lastUpdated: string;
   selectedLicenseId: string | null;
 }
+
+// Define the AIStudio interface to prevent declaration mismatch errors with Window.aistudio
+export interface AIStudio {
+  hasSelectedApiKey: () => Promise<boolean>;
+  openSelectKey: () => Promise<void>;
+}
+
+declare global {
+  interface Window {
+    // Fix: Reference the AIStudio interface instead of an anonymous object to match subsequent declarations
+    aistudio?: AIStudio;
+  }
+}

@@ -7,20 +7,16 @@ export class GeminiService {
    * Analyzes market trends using Gemini 3 Flash with Google Search grounding.
    */
   async analyzeTrends(licenseName: string, category: string): Promise<{ data: TrendAnalysisResponse | null, error?: string }> {
-    // Priority 1: Check environment variable injected via Vite/Vercel
-    // Priority 2: The SDK will automatically check for keys selected via window.aistudio.openSelectKey()
-    const apiKey = process.env.API_KEY;
-    
-    // Initialize per-request to ensure the latest API key (from env or dialog) is used
-    const ai = new GoogleGenAI({ apiKey: apiKey || "" });
+    // Fix: Initialize GoogleGenAI using process.env.API_KEY directly per guidelines
+    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
     
     const prompt = `Perform real-time demand sensing for the license: "${licenseName}" (Category: ${category || 'General'}). 
       Current Date: January 2025.
       
       Task:
-      1. Use Google Search to find specific news from the last 14 days.
-      2. Provide a detailed demand analysis.
-      3. Output your findings STRICTLY as a JSON block.
+      1. Use Google Search to find specific news from the last 14 days (trailers, release dates, leaks, social spikes).
+      2. Provide a detailed demand analysis for merchandising and sourcing teams.
+      3. Output findings STRICTLY as a JSON block.
       
       Structure:
       {
@@ -48,11 +44,13 @@ export class GeminiService {
         }
       });
 
+      // Fix: Access .text property directly (not as a method)
       const responseText = response.text;
       if (!responseText) {
-        return { data: null, error: "Model returned an empty response." };
+        return { data: null, error: "Empty response from engine." };
       }
 
+      // Robust JSON extraction - handle cases where citations are added outside the block
       const jsonMatch = responseText.match(/\{[\s\S]*\}/);
       const jsonStr = jsonMatch ? jsonMatch[0] : responseText;
 
@@ -74,18 +72,16 @@ export class GeminiService {
         };
       } catch (parseError) {
         console.error("JSON Parse Error:", responseText);
-        return { data: null, error: "Failed to parse trend data. The model response was malformed." };
+        return { data: null, error: "The sensing engine returned data in an invalid format. Please try again." };
       }
     } catch (apiError: any) {
-      console.error("Gemini API Error Detail:", apiError);
-      let errorMessage = apiError.message || "Unknown API error";
+      console.error("Gemini API Error:", apiError);
+      let errorMessage = apiError.message || "Connection failed";
       
       if (errorMessage.includes("API_KEY_INVALID") || errorMessage.includes("API key not found")) {
-        errorMessage = "Invalid API Key. Please check your Vercel Environment Variables.";
-      } else if (errorMessage.includes("User location is not supported")) {
-        errorMessage = "Gemini Search is not available in your region.";
-      } else if (errorMessage.includes("Requested entity was not found")) {
-        errorMessage = "Model or Search tool not found. Check project settings.";
+        errorMessage = "API Key not found or invalid. Please check Vercel settings.";
+      } else if (errorMessage.includes("location is not supported")) {
+        errorMessage = "Sensing tool (Google Search) is not supported in your current region.";
       }
       
       return { data: null, error: errorMessage };

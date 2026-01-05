@@ -38,9 +38,8 @@ const App: React.FC = () => {
   const [sensingError, setSensingError] = useState<string | null>(null);
 
   useEffect(() => {
-    // Check if an API key is available via environment or selection
     const checkKey = async () => {
-      const isEnvSet = !!process.env.API_KEY && process.env.API_KEY !== 'undefined';
+      const isEnvSet = !!process.env.API_KEY && process.env.API_KEY !== 'undefined' && process.env.API_KEY !== '';
       if (!isEnvSet && window.aistudio) {
         const selected = await window.aistudio.hasSelectedApiKey();
         setHasKey(selected);
