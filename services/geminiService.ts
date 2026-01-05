@@ -1,41 +1,49 @@
 
-import { GoogleGenAI, Type } from "@google/genai";
+import { GoogleGenAI } from "@google/genai";
 import { GroundingSource, TrendAnalysisResponse } from "../types";
 
 export class GeminiService {
   /**
    * Analyzes market trends using Gemini 3 Flash with Google Search grounding.
-   * Initializes a new SDK instance per call to ensure compliance with API key selection best practices.
+   * We avoid strict JSON mode here because Search Grounding often appends citations 
+   * to the text output, which can break the JSON parser if strict mode is used.
    */
   async analyzeTrends(licenseName: string, category: string): Promise<TrendAnalysisResponse | null> {
-    // Safety check for API key
     const apiKey = process.env.API_KEY;
     if (!apiKey || apiKey === 'undefined') {
-      console.error("Gemini API Key is missing. Please set API_KEY in environment variables.");
+      console.error("Gemini API Key is missing. Ensure it is set in Vercel Environment Variables.");
       return null;
     }
 
+    // Initialize per-request to ensure the latest API key is used
     const ai = new GoogleGenAI({ apiKey });
     
-    const prompt = `Perform real-time demand sensing for: "${licenseName}" (${category || 'General Merchandise'}). 
+    const prompt = `Perform real-time demand sensing for the license: "${licenseName}" (Category: ${category || 'General'}). 
       Current Date: January 2025.
       
-      Use Google Search to find specific news from the last 14 days (trailers, release dates, events).
+      Task:
+      1. Use Google Search to find specific news from the last 14 days (trailers, release dates, leaks, social spikes).
+      2. Provide a detailed demand analysis.
+      3. Output your findings STRICTLY as a JSON block.
       
-      Return a JSON object with:
-      1. name: Confirmed official name.
-      2. category: (Anime, Gaming, Entertainment, Music, etc.)
-      3. action: (TEST, SCALE, HOLD, AVOID, KILL)
-      4. impact: (LOW, MEDIUM, HIGH)
-      5. reasoning: Professional AP/Merchandising explanation.
-      6. confidence: 0-100 percentage.
-      7. trendScore: 0-100 current momentum.
-      8. sensitivity: Weeks remaining in cycle.
-      9. analog: A similar past license performance.
-      10. awarenessSignals: Array of { type: 'search'|'news'|'social', source: string, description: string, intensity: number, timestamp: string (YYYY-MM-DD) }
-      11. points: Array of 4 numbers for a recent trend chart (0-100).
+      The JSON block must have this exact structure:
+      {
+        "name": "Confirmed official name",
+        "category": "Anime/Gaming/Entertainment/etc",
+        "action": "TEST, SCALE, HOLD, or KILL",
+        "impact": "LOW, MEDIUM, or HIGH",
+        "reasoning": "Merchandising logic based on search signals",
+        "confidence": number (0-100),
+        "trendScore": number (0-100),
+        "sensitivity": number (estimated weeks of peak demand remaining),
+        "analog": "Similar past property name",
+        "points": [number, number, number, number], (4 numbers representing demand over last 30 days)
+        "awarenessSignals": [
+          { "type": "search"|"news"|"social", "source": "e.g. Google Trends", "description": "brief description", "intensity": 0-100, "timestamp": "YYYY-MM-DD" }
+        ]
+      }
       
-      Ensure all dates and events are accurate for late 2024 or 2025.`;
+      Ensure accuracy for late 2024 and 2025 events.`;
 
     try {
       const response = await ai.models.generateContent({
@@ -43,40 +51,25 @@ export class GeminiService {
         contents: prompt,
         config: {
           tools: [{ googleSearch: {} }],
-          responseMimeType: "application/json",
-          responseSchema: {
-            type: Type.OBJECT,
-            properties: {
-              name: { type: Type.STRING },
-              category: { type: Type.STRING },
-              action: { type: Type.STRING },
-              impact: { type: Type.STRING },
-              reasoning: { type: Type.STRING },
-              confidence: { type: Type.NUMBER },
-              trendScore: { type: Type.NUMBER },
-              sensitivity: { type: Type.NUMBER },
-              analog: { type: Type.STRING },
-              points: { type: Type.ARRAY, items: { type: Type.NUMBER } },
-              awarenessSignals: {
-                type: Type.ARRAY,
-                items: {
-                  type: Type.OBJECT,
-                  properties: {
-                    type: { type: Type.STRING },
-                    source: { type: Type.STRING },
-                    description: { type: Type.STRING },
-                    intensity: { type: Type.NUMBER },
-                    timestamp: { type: Type.STRING }
-                  },
-                  required: ["type", "source", "description", "intensity", "timestamp"]
-                }
-              }
-            },
-            required: ["name", "category", "action", "impact", "reasoning", "confidence", "trendScore", "sensitivity", "awarenessSignals", "points"]
-          }
+          // We do NOT use responseMimeType: "application/json" here because 
+          // search grounding often appends text that breaks strict JSON output.
         }
       });
 
+      const responseText = response.text;
+      if (!responseText) {
+        console.error("Empty response from Sensing Engine");
+        return null;
+      }
+
+      // Extract JSON from potential markdown wrappers or surrounding text
+      let jsonStr = responseText;
+      const jsonMatch = responseText.match(/\{[\s\S]*\}/);
+      if (jsonMatch) {
+        jsonStr = jsonMatch[0];
+      }
+
+      // Extract grounding sources from metadata
       const groundingChunks = response.candidates?.[0]?.groundingMetadata?.groundingChunks || [];
       const groundingSources: GroundingSource[] = groundingChunks
         .filter((chunk: any) => chunk.web)
@@ -85,27 +78,18 @@ export class GeminiService {
           uri: chunk.web.uri
         }));
 
-      const responseText = response.text;
-      if (!responseText) {
-        console.error("No text response from Gemini");
-        return null;
-      }
-
-      // Robust cleaning of markdown JSON wrappers if the model returns them despite responseMimeType
-      const cleanedJson = responseText.replace(/```json\n?|```/g, '').trim();
-
       try {
-        const data = JSON.parse(cleanedJson);
+        const data = JSON.parse(jsonStr);
         return {
           ...data,
-          groundingSources
+          groundingSources: groundingSources.length > 0 ? groundingSources : undefined
         } as TrendAnalysisResponse;
-      } catch (e) {
-        console.error("Failed to parse Gemini response as JSON. Raw text:", responseText, e);
+      } catch (parseError) {
+        console.error("JSON Parse Error. Raw text from model:", responseText);
         return null;
       }
     } catch (apiError) {
-      console.error("Gemini API Request Failed:", apiError);
+      console.error("Gemini API Error:", apiError);
       return null;
     }
   }

@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState } from 'react';
 import { AppState, LicenseTrend, ActionType, ImpactLevel } from './types';
 import { MOCK_LICENSES } from './constants';
 import { LicenseCard } from './components/LicenseCard';
@@ -24,8 +24,6 @@ import {
 const App: React.FC = () => {
   const [view, setView] = useState<'landing' | 'dashboard'>('landing');
   const [isSidebarHovered, setIsSidebarHovered] = useState(false);
-  // isSidebarCollapsed is true by default, making it collapsed unless hovered
-  const [isSidebarCollapsed] = useState(true);
   
   const [state, setState] = useState<AppState>({
     licenses: MOCK_LICENSES,
@@ -37,8 +35,8 @@ const App: React.FC = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [sensingError, setSensingError] = useState<string | null>(null);
 
-  // Expanded strictly on hover when collapsed by default
-  const isExpanded = isSidebarHovered || !isSidebarCollapsed;
+  // Expanded ONLY on hover. Collapsed by default (no toggle).
+  const isExpanded = isSidebarHovered;
 
   const handleSensing = async (licenseId?: string) => {
     const targetId = licenseId || state.selectedLicenseId;
@@ -84,11 +82,11 @@ const App: React.FC = () => {
           })
         }));
       } else {
-        throw new Error("Sensing Engine returned no valid data.");
+        throw new Error("Empty result");
       }
     } catch (err) {
       console.error("Demand sensing failed", err);
-      setSensingError("Search failed. Verify API Key and connection.");
+      setSensingError("G-Sensing failed. Ensure API_KEY is set in Vercel.");
       setState(prev => ({ ...prev, isSensing: false }));
     }
   };
@@ -113,10 +111,10 @@ const App: React.FC = () => {
         const newLicense: LicenseTrend = {
           id: newId,
           name: result.name || query,
-          category: result.category || "Uncategorized",
+          category: result.category || "Discovery",
           recommendedAction: (result.action as ActionType) || ActionType.TEST,
           impactScore: (result.impact as ImpactLevel) || ImpactLevel.LOW,
-          reasoning: result.reasoning || "Initial automated discovery via Real-time Sensing.",
+          reasoning: result.reasoning || "Real-time discovery triggered via sensing engine.",
           confidence: result.confidence || 50,
           trendScore: result.trendScore || 50,
           timeSensitivity: result.sensitivity || 4,
@@ -135,11 +133,11 @@ const App: React.FC = () => {
         }));
         setSearchQuery(''); 
       } else {
-        throw new Error("Engine returned no discovery results.");
+        throw new Error("Discovery failed");
       }
     } catch (err) {
       console.error("Discovery failed:", err);
-      setSensingError("Global sensing failed. Check logs or query term.");
+      setSensingError("Discovery Engine failed. Check Vercel API Key.");
       setState(prev => ({ ...prev, isSensing: false }));
     }
   };
@@ -173,7 +171,7 @@ const App: React.FC = () => {
       <aside 
         className={`${
           isExpanded ? 'w-64' : 'w-20'
-        } bg-gray-900 text-white flex flex-col transition-all duration-300 ease-in-out hidden md:flex relative z-20`}
+        } bg-gray-900 text-white flex flex-col transition-all duration-300 ease-in-out hidden md:flex relative z-20 shadow-2xl`}
         onMouseEnter={() => setIsSidebarHovered(true)}
         onMouseLeave={() => setIsSidebarHovered(false)}
       >
@@ -191,33 +189,12 @@ const App: React.FC = () => {
           </div>
 
           <nav className="space-y-1">
-            <NavItem 
-              icon={<LayoutDashboard className="w-5 h-5" />} 
-              label="Action Center" 
-              active 
-              collapsed={!isExpanded} 
-            />
-            <NavItem 
-              icon={<Compass className="w-5 h-5" />} 
-              label="Sense Engine" 
-              collapsed={!isExpanded} 
-            />
-            <NavItem 
-              icon={<Boxes className="w-5 h-5" />} 
-              label="License Portfolio" 
-              collapsed={!isExpanded} 
-            />
-            <NavItem 
-              icon={<FileText className="w-5 h-5" />} 
-              label="Reports" 
-              collapsed={!isExpanded} 
-            />
+            <NavItem icon={<LayoutDashboard className="w-5 h-5" />} label="Action Center" active collapsed={!isExpanded} />
+            <NavItem icon={<Compass className="w-5 h-5" />} label="Sense Engine" collapsed={!isExpanded} />
+            <NavItem icon={<Boxes className="w-5 h-5" />} label="Portfolio" collapsed={!isExpanded} />
+            <NavItem icon={<FileText className="w-5 h-5" />} label="Reports" collapsed={!isExpanded} />
             <div className="py-4 border-t border-gray-800 mt-4" />
-            <NavItem 
-              icon={<Settings className="w-5 h-5" />} 
-              label="Configuration" 
-              collapsed={!isExpanded} 
-            />
+            <NavItem icon={<Settings className="w-5 h-5" />} label="Settings" collapsed={!isExpanded} />
           </nav>
         </div>
         
@@ -242,7 +219,7 @@ const App: React.FC = () => {
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
               <input 
                 type="text" 
-                placeholder="Search local or sense new trends (Press Enter)..." 
+                placeholder="Search local or type a NEW trend + ENTER to sense..." 
                 className="w-full pl-10 pr-4 py-2 bg-gray-100 border-none rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:bg-white transition-all outline-none"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
@@ -253,14 +230,14 @@ const App: React.FC = () => {
 
           <div className="flex items-center gap-4">
             {sensingError ? (
-              <div className="flex items-center gap-2 text-xs font-bold text-red-600 bg-red-50 px-3 py-1.5 rounded-lg border border-red-100">
+              <div className="flex items-center gap-2 text-xs font-bold text-red-600 bg-red-50 px-3 py-1.5 rounded-lg border border-red-100 animate-pulse">
                 <AlertCircle className="w-3 h-3" />
                 {sensingError}
               </div>
             ) : (
               <div className="flex items-center gap-2 text-[10px] font-bold text-emerald-600 bg-emerald-50 px-3 py-1.5 rounded-lg border border-emerald-100 uppercase tracking-wider hidden sm:flex">
                 <Globe className="w-3 h-3" />
-                Live Grounding Active
+                Live Grounding Ready
               </div>
             )}
             <div className="flex items-center gap-2 text-xs font-medium text-gray-500 bg-gray-50 px-3 py-1.5 rounded-lg border border-gray-200">
@@ -271,31 +248,20 @@ const App: React.FC = () => {
               <Bell className="w-5 h-5" />
               <span className="absolute top-2 right-2 w-2 h-2 bg-rose-500 rounded-full border-2 border-white"></span>
             </button>
-            <button 
-              onClick={() => setView('landing')}
-              className="p-2 text-gray-400 hover:text-gray-600 transition-colors sm:ml-2"
-              title="Exit to Landing"
-            >
+            <button onClick={() => setView('landing')} className="p-2 text-gray-400 hover:text-gray-600 transition-colors sm:ml-2">
               <Menu className="w-5 h-5" />
             </button>
           </div>
         </header>
 
         <div className="flex-1 flex overflow-hidden p-6 gap-6 flex-col lg:flex-row">
+          {/* List Section */}
           <section className="w-full lg:w-1/3 flex flex-col gap-6 overflow-y-auto custom-scrollbar pr-2 min-h-0">
             <div className="flex items-center justify-between sticky top-0 bg-gray-50 z-10 pb-2">
               <h2 className="text-xl font-black tracking-tight flex items-center gap-2">
                 {searchQuery ? 'Search Results' : 'Active Trends'} 
                 <span className="text-xs font-bold text-blue-600 bg-blue-50 px-2 py-0.5 rounded-full">{filteredLicenses.length}</span>
               </h2>
-              <button 
-                onClick={() => handleSensing()}
-                disabled={state.isSensing}
-                className="px-3 py-1.5 bg-blue-600 text-white rounded-lg text-xs font-bold hover:bg-blue-700 flex items-center gap-1.5 disabled:opacity-50 transition-all shadow-sm"
-              >
-                <RefreshCw className={`w-3 h-3 ${state.isSensing ? 'animate-spin' : ''}`} />
-                {state.isSensing ? 'Syncing...' : 'Force Sync'}
-              </button>
             </div>
 
             <div className="space-y-4 pb-4">
@@ -319,13 +285,14 @@ const App: React.FC = () => {
                   </div>
                   <div>
                     <h4 className="font-bold text-blue-900">Sense Global: "{searchQuery}"</h4>
-                    <p className="text-xs text-blue-600/70 font-medium">No local matches. Trigger AI discovery engine.</p>
+                    <p className="text-xs text-blue-600/70 font-medium">No local matches. Discover via Real-time AI.</p>
                   </div>
                 </button>
               )}
             </div>
           </section>
 
+          {/* Details Section */}
           <section className="flex-1 overflow-hidden min-h-0">
             {selectedLicense ? (
               <TrendDetails key={selectedLicense.id} license={selectedLicense} />
@@ -335,7 +302,7 @@ const App: React.FC = () => {
                   <Compass className="w-10 h-10 text-gray-300" />
                 </div>
                 <h3 className="text-xl font-bold text-gray-900 mb-2">No License Selected</h3>
-                <p className="text-gray-500 max-w-sm">Select a trending license from the list or search for a new property to trigger AI discovery.</p>
+                <p className="text-gray-500 max-w-sm">Select a trend or perform a global sense search to begin analysis.</p>
               </div>
             )}
           </section>
@@ -345,23 +312,13 @@ const App: React.FC = () => {
   );
 };
 
-const NavItem: React.FC<{ 
-  icon: React.ReactNode; 
-  label: string; 
-  active?: boolean; 
-  collapsed?: boolean 
-}> = ({ icon, label, active, collapsed }) => (
+const NavItem: React.FC<{ icon: React.ReactNode; label: string; active?: boolean; collapsed?: boolean }> = ({ icon, label, active, collapsed }) => (
   <button className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all font-bold text-sm group ${
     active ? 'bg-blue-600 text-white shadow-lg shadow-blue-500/20' : 'text-gray-400 hover:text-white hover:bg-gray-800'
   }`}>
     <div className={`flex-shrink-0 ${collapsed ? 'mx-auto' : ''}`}>{icon}</div>
     {!collapsed && (
       <span className="truncate animate-in fade-in slide-in-from-left-1 duration-200">{label}</span>
-    )}
-    {collapsed && (
-      <div className="absolute left-20 px-2 py-1 bg-gray-900 text-white text-[10px] uppercase tracking-widest rounded-md opacity-0 group-hover:opacity-100 pointer-events-none transition-opacity whitespace-nowrap z-50 border border-gray-800">
-        {label}
-      </div>
     )}
   </button>
 );
